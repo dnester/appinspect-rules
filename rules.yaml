@@ -1,4 +1,4 @@
-# version: 1.0.0
+# version: 1.0.1
 rules:
 # ===================================================
 # M1: Improper Credential Usage - Hardcoded Secrets
@@ -1793,7 +1793,7 @@ rules:
     - pattern: '"DELETE FROM $TABLE WHERE $FIELD = \"" + $VAR + "\""'
 
 # ===================================================
-# CUSTOM RULES — AppInspect Extended Library
+# CUSTOM RULES -- AppInspect Extended Library
 # Runtime Security, Privacy, Async/Combine, SwiftUI
 # ===================================================
 
@@ -1888,7 +1888,7 @@ rules:
 - id: appinspect-weak-pbkdf2-iterations
   message: >-
     PBKDF2 key derivation with potentially insufficient iteration count. NIST SP 800-132
-    recommends ≥ 600,000 iterations for PBKDF2-HMAC-SHA256 in 2023. Low counts make
+    recommends >= 600,000 iterations for PBKDF2-HMAC-SHA256 in 2023. Low counts make
     offline dictionary attacks feasible.
   severity: WARNING
   metadata:
@@ -1946,7 +1946,7 @@ rules:
 - id: appinspect-static-iv-aes
   message: >-
     AES encryption with what appears to be a static or hardcoded IV. A fixed IV with
-    the same key completely breaks semantic security — an attacker can distinguish
+    the same key completely breaks semantic security -- an attacker can distinguish
     and correlate ciphertexts. Use SecRandomCopyBytes to generate a fresh IV per encryption.
   severity: ERROR
   metadata:
@@ -3960,4 +3960,855 @@ rules:
   - swift
   pattern: |
     HTTPCookie(properties: $PROPS)
+
+# ===================================================
+# NSPredicate Injection (CWE-89, M4)
+# ===================================================
+
+- id: swift-nspredicate-injection
+  message: >-
+    NSPredicate created with string interpolation or concatenation of potentially
+    untrusted input. This is the Swift analog of SQL injection -- an attacker can
+    manipulate the predicate logic to bypass filters, access unauthorized data, or
+    cause crashes. Use NSPredicate(format:argumentArray:) with %@ placeholders
+    instead of string interpolation.
+  severity: ERROR
+  metadata:
+    likelihood: HIGH
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-89: Improper Neutralization of Special Elements used in an SQL Command'
+    - 'CWE-943: Improper Neutralization of Special Elements in Data Query Logic'
+    masvs:
+    - 'MASVS-PLATFORM-2: The app uses WebViews securely'
+    owasp:
+    - M4:2024 - Insufficient Input/Output Validation
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        NSPredicate(format: "\(...)")
+    - pattern: |
+        NSPredicate(format: $A + $B)
+    - pattern: |
+        NSPredicate(format: "\($X)")
+    - pattern: |
+        NSPredicate(format: $FMT + $VAR + $REST)
+
+- id: swift-nspredicate-injection-interpolation
+  message: >-
+    NSPredicate format string constructed using string interpolation. Use
+    NSPredicate(format:argumentArray:) with %@ placeholders to safely bind values.
+  severity: ERROR
+  metadata:
+    likelihood: HIGH
+    impact: HIGH
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-943: Improper Neutralization of Special Elements in Data Query Logic'
+    masvs:
+    - 'MASVS-PLATFORM-2: The app uses WebViews securely'
+    owasp:
+    - M4:2024 - Insufficient Input/Output Validation
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  pattern: |
+    let $PRED = NSPredicate(format: "\($X)")
+
+# ===================================================
+# DYLD_INSERT_LIBRARIES Check Missing (CWE-693, M7)
+# ===================================================
+
+- id: swift-dyld-insert-libraries-check
+  message: >-
+    Code checks for DYLD_INSERT_LIBRARIES environment variable. While this is a
+    defensive anti-tampering check, ensure the check result is properly acted upon
+    (e.g., terminating the app). Attackers use DYLD_INSERT_LIBRARIES on jailbroken
+    devices to inject malicious dylibs into running processes.
+  severity: INFO
+  metadata:
+    likelihood: LOW
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-693: Protection Mechanism Failure'
+    masvs:
+    - 'MASVS-RESILIENCE-1: The app validates the integrity of the platform'
+    owasp:
+    - M7:2024 - Insufficient Binary Protections
+    subcategory:
+    - audit
+    technology:
+    - ios
+  languages:
+  - swift
+  pattern: |
+    ProcessInfo.processInfo.environment["DYLD_INSERT_LIBRARIES"]
+
+# ===================================================
+# JWT Token Stored in UserDefaults (CWE-312, M1/M9)
+# ===================================================
+
+- id: swift-jwt-insecure-storage
+  message: >-
+    JWT or OAuth token appears to be stored in UserDefaults. UserDefaults is a
+    plaintext plist file that is included in device backups and accessible on
+    jailbroken devices. Store authentication tokens in the Keychain with
+    appropriate access control flags instead.
+  severity: ERROR
+  metadata:
+    likelihood: HIGH
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-312: Cleartext Storage of Sensitive Information'
+    - 'CWE-522: Insufficiently Protected Credentials'
+    masvs:
+    - 'MASVS-STORAGE-1: The app securely stores sensitive data'
+    owasp:
+    - M1:2024 - Improper Credential Usage
+    - M9:2024 - Insecure Data Storage
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        UserDefaults.$INST.set($TOKEN, forKey: $KEY)
+    - pattern: |
+        UserDefaults.standard.set($TOKEN, forKey: $KEY)
+  - metavariable-regex:
+      metavariable: $KEY
+      regex: .*(token|jwt|access_token|refresh_token|auth_token|bearer|oauth|session_token|id_token|api_token).*
+
+- id: swift-jwt-stored-in-defaults
+  message: >-
+    Authentication token being stored to or read from UserDefaults. Use Keychain
+    Services for secure credential storage instead of UserDefaults.
+  severity: ERROR
+  metadata:
+    likelihood: HIGH
+    impact: HIGH
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-312: Cleartext Storage of Sensitive Information'
+    masvs:
+    - 'MASVS-STORAGE-1: The app securely stores sensitive data'
+    owasp:
+    - M1:2024 - Improper Credential Usage
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        UserDefaults.standard.string(forKey: $KEY)
+    - pattern: |
+        UserDefaults.standard.object(forKey: $KEY)
+    - pattern: |
+        UserDefaults.standard.value(forKey: $KEY)
+  - metavariable-regex:
+      metavariable: $KEY
+      regex: .*(token|jwt|access_token|refresh_token|auth_token|bearer|oauth|session_token|id_token|api_token).*
+
+# ===================================================
+# JWT Missing Signature Verification (CWE-347, M1)
+# ===================================================
+
+- id: swift-jwt-missing-verification
+  message: >-
+    JWT is being decoded without signature verification. JWTs must have their
+    signature verified before trusting the claims. Use a JWT library that
+    validates the signature (e.g., vapor/jwt-kit, SwiftJWT with Verifier).
+    Decoding without verification allows token forgery.
+  severity: ERROR
+  metadata:
+    likelihood: HIGH
+    impact: HIGH
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-347: Improper Verification of Cryptographic Signature'
+    masvs:
+    - 'MASVS-AUTH-1: The app uses secure authentication and authorization protocols'
+    owasp:
+    - M1:2024 - Improper Credential Usage
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        $DATA.base64Decoded()
+    - pattern: |
+        Data(base64Encoded: $JWT)
+    - pattern: |
+        $JWT.components(separatedBy: ".")
+  - metavariable-regex:
+      metavariable: $JWT
+      regex: .*(jwt|token|idToken|accessToken).*
+
+# ===================================================
+# Format String Injection (CWE-134, M4)
+# ===================================================
+
+- id: swift-format-string-injection
+  message: >-
+    User-controlled input used as a format string argument. An attacker can
+    supply format specifiers (%@, %n, %x) to read stack memory, crash the app,
+    or potentially execute code. Use String interpolation or pass user input as
+    an argument, never as the format string itself.
+  severity: ERROR
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-134: Use of Externally-Controlled Format String'
+    masvs:
+    - 'MASVS-CODE-4: The app validates and sanitizes all untrusted inputs'
+    owasp:
+    - M4:2024 - Insufficient Input/Output Validation
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        String(format: $USERINPUT)
+    - pattern: |
+        NSString(format: $USERINPUT)
+    - pattern: |
+        String.localizedStringWithFormat($USERINPUT)
+
+# ===================================================
+# PII in Log Statements (CWE-532, M6)
+# ===================================================
+
+- id: swift-pii-in-logs-email
+  message: >-
+    Potentially logging an email address to the console. PII such as email
+    addresses should never appear in log output as logs may be captured by
+    crash reporters, analytics SDKs, or device logs accessible via Xcode.
+    Use os_log with .private or redact PII before logging.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-532: Insertion of Sensitive Information into Log File'
+    masvs:
+    - 'MASVS-PRIVACY-1: The app minimizes access to sensitive data and resources'
+    owasp:
+    - M6:2024 - Inadequate Privacy Controls
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        print(..., $EMAIL, ...)
+    - pattern: |
+        NSLog(..., $EMAIL, ...)
+    - pattern: |
+        os_log(..., $EMAIL, ...)
+    - pattern: |
+        Logger.$INST.$METHOD(..., $EMAIL, ...)
+  - metavariable-regex:
+      metavariable: $EMAIL
+      regex: .*(email|emailAddress|userEmail|mail|e_mail).*
+
+- id: swift-pii-in-logs-ssn-card
+  message: >-
+    Potentially logging sensitive PII (SSN, credit card, or phone number) to the
+    console. This data must never appear in log output. Use os_log with .private
+    visibility or redact the data before logging.
+  severity: ERROR
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-532: Insertion of Sensitive Information into Log File'
+    masvs:
+    - 'MASVS-PRIVACY-1: The app minimizes access to sensitive data and resources'
+    owasp:
+    - M6:2024 - Inadequate Privacy Controls
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        print(..., $PII, ...)
+    - pattern: |
+        NSLog(..., $PII, ...)
+    - pattern: |
+        os_log(..., $PII, ...)
+  - metavariable-regex:
+      metavariable: $PII
+      regex: .*(ssn|socialSecurity|creditCard|cardNumber|cvv|phoneNumber|phone_number|dateOfBirth|dob|passport).*
+
+# ===================================================
+# Keyboard Cache Leakage (CWE-200, M6)
+# ===================================================
+
+- id: swift-keyboard-cache-sensitive-field
+  message: >-
+    UITextField or UITextView with autocorrection enabled on a potentially
+    sensitive input field. iOS caches keyboard input for autocorrection, which
+    persists across app restarts. Disable autocorrection on fields collecting
+    passwords, SSNs, credit cards, or other sensitive data by setting
+    autocorrectionType = .no and spellCheckingType = .no.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-200: Exposure of Sensitive Information to an Unauthorized Actor'
+    masvs:
+    - 'MASVS-STORAGE-1: The app securely stores sensitive data'
+    owasp:
+    - M6:2024 - Inadequate Privacy Controls
+    subcategory:
+    - audit
+    technology:
+    - ios
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        $FIELD.isSecureTextEntry = true
+    - pattern: |
+        $FIELD.textContentType = .password
+    - pattern: |
+        $FIELD.textContentType = .creditCardNumber
+    - pattern: |
+        $FIELD.textContentType = .oneTimeCode
+  - pattern-not-inside: |
+      ...
+      $FIELD.autocorrectionType = .no
+      ...
+
+# ===================================================
+# SQLite Unencrypted Database (CWE-312, M9)
+# ===================================================
+
+- id: swift-sqlite-unencrypted
+  message: >-
+    SQLite database opened without encryption. Data stored in plaintext SQLite
+    databases can be extracted from device backups or accessed on jailbroken
+    devices. Use SQLCipher or Apple's encrypted Core Data store for databases
+    containing sensitive data.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-312: Cleartext Storage of Sensitive Information'
+    masvs:
+    - 'MASVS-STORAGE-2: The app prevents leakage of sensitive data'
+    owasp:
+    - M9:2024 - Insecure Data Storage
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        sqlite3_open($PATH, $DB)
+    - pattern: |
+        sqlite3_open_v2($PATH, $DB, $FLAGS, $VFS)
+    - pattern: |
+        FMDatabase(path: $PATH)
+    - pattern: |
+        FMDatabase(url: $URL)
+    - pattern: |
+        FMDatabaseQueue(path: $PATH)
+
+# ===================================================
+# Temporary File with Sensitive Data (CWE-377, M9)
+# ===================================================
+
+- id: swift-temp-file-sensitive-data
+  message: >-
+    Sensitive data may be written to a temporary directory. Files in
+    NSTemporaryDirectory() or FileManager.default.temporaryDirectory are not
+    encrypted and may persist across app restarts. Use the Keychain for
+    credentials or write to the app's Library directory with
+    FileProtectionType.complete.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-377: Insecure Temporary File'
+    masvs:
+    - 'MASVS-STORAGE-2: The app prevents leakage of sensitive data'
+    owasp:
+    - M9:2024 - Insecure Data Storage
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        $DATA.write(to: NSTemporaryDirectory() + $FILE, ...)
+    - pattern: |
+        FileManager.default.createFile(atPath: NSTemporaryDirectory() + $FILE, ...)
+    - pattern: |
+        $DATA.write(to: FileManager.default.temporaryDirectory.$APPENDED, ...)
+    - pattern: |
+        try $DATA.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).$APPENDED, ...)
+
+# ===================================================
+# UIWebView Deprecated Usage (CWE-16, M8)
+# ===================================================
+
+- id: swift-uiwebview-deprecated
+  message: >-
+    UIWebView is deprecated since iOS 12 and has known security vulnerabilities
+    including JavaScript-to-native bridge exploits and missing modern security
+    features. Apple rejects App Store submissions using UIWebView. Migrate to
+    WKWebView which provides process isolation, content filtering, and modern
+    security controls.
+  severity: ERROR
+  metadata:
+    likelihood: HIGH
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-16: Configuration'
+    - 'CWE-477: Use of Obsolete Function'
+    masvs:
+    - 'MASVS-PLATFORM-2: The app uses WebViews securely'
+    owasp:
+    - M8:2024 - Security Misconfiguration
+    subcategory:
+    - vuln
+    technology:
+    - ios
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        UIWebView()
+    - pattern: |
+        UIWebView(frame: $FRAME)
+    - pattern: |
+        let $VAR: UIWebView
+    - pattern: |
+        var $VAR: UIWebView
+    - pattern: |
+        $VAR = UIWebView(...)
+
+# ===================================================
+# Weak LAContext Policy (CWE-287, M3)
+# ===================================================
+
+- id: swift-lacontext-weak-policy
+  message: >-
+    LAContext using deviceOwnerAuthentication policy instead of
+    deviceOwnerAuthenticationWithBiometrics. The deviceOwnerAuthentication
+    policy falls back to the device passcode, which may be a simple 4-digit
+    PIN. For high-security operations, use deviceOwnerAuthenticationWithBiometrics
+    to require biometric authentication without passcode fallback, or implement
+    additional verification when passcode fallback is used.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-287: Improper Authentication'
+    masvs:
+    - 'MASVS-AUTH-2: The app performs local authentication securely'
+    owasp:
+    - M3:2024 - Insecure Authentication/Authorization
+    subcategory:
+    - audit
+    technology:
+    - ios
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        $CTX.evaluatePolicy(.deviceOwnerAuthentication, ...)
+    - pattern: |
+        $CTX.canEvaluatePolicy(.deviceOwnerAuthentication, ...)
+
+# ===================================================
+# Keychain kSecAttrSynchronizable (CWE-922, M9)
+# ===================================================
+
+- id: swift-keychain-synchronizable
+  message: >-
+    Keychain item marked as synchronizable (kSecAttrSynchronizable = true).
+    Synchronizable items are synced to iCloud Keychain and shared across all
+    devices signed into the same Apple ID. This increases the attack surface --
+    if any device is compromised, the secret is exposed. Disable synchronization
+    for highly sensitive credentials like encryption keys or API secrets.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-922: Insecure Storage of Sensitive Information'
+    masvs:
+    - 'MASVS-STORAGE-1: The app securely stores sensitive data'
+    owasp:
+    - M9:2024 - Insecure Data Storage
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        $QUERY[kSecAttrSynchronizable as String] = true
+    - pattern: |
+        $QUERY[kSecAttrSynchronizable as String] = kCFBooleanTrue
+    - pattern: |
+        $QUERY[kSecAttrSynchronizable] = true
+    - pattern: |
+        $QUERY[String(kSecAttrSynchronizable)] = true
+
+# ===================================================
+# ATS Domain-Level Exceptions (CWE-295, M8)
+# ===================================================
+
+- id: swift-ats-domain-exception-code
+  message: >-
+    Code references NSExceptionAllowsInsecureHTTPLoads or
+    NSTemporaryExceptionAllowsInsecureHTTPLoads, which disables HTTPS
+    requirements for specific domains in App Transport Security. Each ATS
+    exception increases the attack surface for network interception. Ensure
+    exceptions are justified and minimize their scope.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-295: Improper Certificate Validation'
+    - 'CWE-319: Cleartext Transmission of Sensitive Information'
+    masvs:
+    - 'MASVS-NETWORK-1: The app secures all network traffic'
+    owasp:
+    - M8:2024 - Security Misconfiguration
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        "NSExceptionAllowsInsecureHTTPLoads"
+    - pattern: |
+        "NSTemporaryExceptionAllowsInsecureHTTPLoads"
+    - pattern: |
+        "NSAllowsArbitraryLoads"
+
+# ===================================================
+# Open Redirect via URL Scheme (CWE-601, M4)
+# ===================================================
+
+- id: swift-url-scheme-open-redirect
+  message: >-
+    URL from an external source is opened without validation. An attacker can
+    craft a deep link that redirects the user to a malicious URL via
+    UIApplication.shared.open(). Validate that the URL scheme, host, and path
+    match expected values before opening.
+  severity: ERROR
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-601: URL Redirection to Untrusted Site'
+    masvs:
+    - 'MASVS-PLATFORM-1: The app uses IPC mechanisms securely'
+    owasp:
+    - M4:2024 - Insufficient Input/Output Validation
+    subcategory:
+    - vuln
+    technology:
+    - ios
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        UIApplication.shared.open($URL, ...)
+    - pattern: |
+        UIApplication.shared.openURL($URL)
+  - pattern-not-inside: |
+      if $URL.scheme == ... { ... }
+  - pattern-not-inside: |
+      guard $URL.host == ... else { ... }
+
+# ===================================================
+# Insecure Random for Security Context (CWE-330, M10)
+# ===================================================
+
+- id: swift-arc4random-security-context
+  message: >-
+    arc4random or arc4random_uniform used in a security-sensitive context such
+    as generating tokens, nonces, or keys. Use SecRandomCopyBytes for
+    cryptographically secure random number generation in security contexts.
+  severity: ERROR
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-330: Use of Insufficiently Random Values'
+    masvs:
+    - 'MASVS-CRYPTO-1: The app uses cryptographic algorithms that are up to date'
+    owasp:
+    - M10:2024 - Insufficient Cryptography
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        let $TOKEN = arc4random()
+    - pattern: |
+        let $TOKEN = arc4random_uniform($N)
+    - pattern: |
+        var $TOKEN = arc4random()
+  - metavariable-regex:
+      metavariable: $TOKEN
+      regex: .*(token|nonce|key|secret|salt|iv|seed|otp|code|pin).*
+
+# ===================================================
+# Insecure Deserialization (CWE-502, M4)
+# ===================================================
+
+- id: swift-insecure-unarchiver
+  message: >-
+    NSKeyedUnarchiver.unarchiveObject(withFile:) or unarchiveObject(with:) used
+    without requiring secure coding. These deprecated methods allow arbitrary
+    class instantiation from untrusted data, leading to code execution. Use
+    unarchivedObject(ofClass:from:) with NSSecureCoding instead.
+  severity: ERROR
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-502: Deserialization of Untrusted Data'
+    masvs:
+    - 'MASVS-CODE-4: The app validates and sanitizes all untrusted inputs'
+    owasp:
+    - M4:2024 - Insufficient Input/Output Validation
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        NSKeyedUnarchiver.unarchiveObject(with: $DATA)
+    - pattern: |
+        NSKeyedUnarchiver.unarchiveObject(withFile: $PATH)
+    - pattern: |
+        NSKeyedUnarchiver(forReadingWith: $DATA)
+
+# ===================================================
+# Cleartext HTTP in URLRequest (CWE-319, M5)
+# ===================================================
+
+- id: swift-cleartext-url-request
+  message: >-
+    URLRequest constructed with an HTTP (non-HTTPS) URL string literal. All
+    network communication should use HTTPS to prevent eavesdropping and
+    man-in-the-middle attacks. Use https:// URLs or ensure App Transport
+    Security (ATS) is not disabled.
+  severity: ERROR
+  metadata:
+    likelihood: HIGH
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-319: Cleartext Transmission of Sensitive Information'
+    masvs:
+    - 'MASVS-NETWORK-1: The app secures all network traffic'
+    owasp:
+    - M5:2024 - Insecure Communication
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        URLRequest(url: URL(string: "http://$HOST")!)
+    - pattern: |
+        URL(string: "http://$URL")
+  - pattern-not: |
+      URL(string: "http://localhost$PATH")
+  - pattern-not: |
+      URL(string: "http://127.0.0.1$PATH")
+
+# ===================================================
+# Hardcoded PIN / Passcode (CWE-798, M1)
+# ===================================================
+
+- id: swift-hardcoded-pin-passcode
+  message: >-
+    Hardcoded PIN, passcode, or verification code detected. Authentication
+    codes should be dynamically generated and never hardcoded in source code.
+  severity: ERROR
+  metadata:
+    likelihood: HIGH
+    impact: HIGH
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-798: Use of Hard-coded Credentials'
+    masvs:
+    - 'MASVS-AUTH-1: The app uses secure authentication and authorization protocols'
+    owasp:
+    - M1:2024 - Improper Credential Usage
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        let $VAR = "$VALUE"
+    - pattern: |
+        var $VAR = "$VALUE"
+  - metavariable-regex:
+      metavariable: $VAR
+      regex: .*(pin|passcode|verificationCode|otp|defaultPassword|masterPassword|adminPassword|backupCode).*
+  - metavariable-regex:
+      metavariable: $VALUE
+      regex: .{4,}
+
+# ===================================================
+# Missing Certificate Pinning on Sensitive Endpoint (CWE-295, M5)
+# ===================================================
+
+- id: swift-urlsession-no-auth-challenge
+  message: >-
+    URLSession created with a delegate that does not implement
+    urlSession(_:didReceive:completionHandler:) for server trust evaluation.
+    Without certificate pinning, the app is vulnerable to man-in-the-middle
+    attacks using rogue certificates. Implement certificate or public key
+    pinning for connections to your backend APIs.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-295: Improper Certificate Validation'
+    masvs:
+    - 'MASVS-NETWORK-2: The app performs identity pinning'
+    owasp:
+    - M5:2024 - Insecure Communication
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  pattern: |
+    URLSession(configuration: $CONFIG, delegate: nil, delegateQueue: $QUEUE)
 
