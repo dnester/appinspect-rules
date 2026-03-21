@@ -1,4 +1,4 @@
-# version: 1.0.0
+# version: 1.1.0
 rules:
 # ===================================================
 # M1: Improper Credential Usage - Hardcoded Secrets
@@ -4811,4 +4811,671 @@ rules:
   - swift
   pattern: |
     URLSession(configuration: $CONFIG, delegate: nil, delegateQueue: $QUEUE)
+
+# ===================================================
+# MobSF-Derived Rules -- Additional Coverage
+# IP Disclosure, File Protection, Realm DB, Secure Text,
+# Anti-Reversing, TLS Versions, MD2/MD4/MD6
+# ===================================================
+
+# ===================================================
+# Hardcoded IP Address Disclosure (CWE-200)
+# ===================================================
+
+- id: swift-hardcoded-ip-address
+  message: >-
+    Hardcoded IP address detected. Hardcoded IP addresses can expose internal
+    network topology and make the app fragile to infrastructure changes. Use
+    DNS hostnames or configuration files instead.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-200: Exposure of Sensitive Information to an Unauthorized Actor'
+    masvs:
+    - 'MASVS-NETWORK-1: The app secures all network traffic'
+    owasp:
+    - M8:2024 - Security Misconfiguration
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        let $VAR = "$VALUE"
+    - pattern: |
+        var $VAR = "$VALUE"
+    - pattern: |
+        URL(string: "$VALUE")
+  - metavariable-regex:
+      metavariable: $VALUE
+      regex: .*\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b.*
+
+- id: swift-hardcoded-public-ip-address
+  message: >-
+    Hardcoded public IP address detected. Public IPs in source code expose
+    server infrastructure details and make configuration changes difficult.
+    Use hostnames resolved via DNS instead.
+  severity: INFO
+  metadata:
+    likelihood: LOW
+    impact: MEDIUM
+    confidence: LOW
+    category: security
+    cwe:
+    - 'CWE-200: Exposure of Sensitive Information to an Unauthorized Actor'
+    masvs:
+    - 'MASVS-NETWORK-1: The app secures all network traffic'
+    owasp:
+    - M8:2024 - Security Misconfiguration
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  pattern-regex: '"https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+
+# ===================================================
+# No File Protection (CWE-311, M9)
+# ===================================================
+
+- id: swift-no-file-protection
+  message: >-
+    File created with .noFileProtection, meaning the file is not encrypted at
+    rest and is accessible even when the device is locked. Use
+    .completeFileProtection or .completeUntilFirstUserAuthentication for
+    files containing sensitive data.
+  severity: ERROR
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-311: Missing Encryption of Sensitive Data'
+    masvs:
+    - 'MASVS-STORAGE-1: The app securely stores sensitive data'
+    owasp:
+    - M9:2024 - Insecure Data Storage
+    subcategory:
+    - vuln
+    technology:
+    - ios
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        FileProtectionType.none
+    - pattern: |
+        .noFileProtection
+    - pattern: |
+        NSFileProtectionNone
+
+# ===================================================
+# Realm Database Without Encryption (CWE-312, M9)
+# ===================================================
+
+- id: swift-realm-no-encryption
+  message: >-
+    Realm database opened without encryption. Realm databases store data in
+    plaintext by default. Set Realm.Configuration.encryptionKey to a 64-byte
+    key stored in the Keychain to encrypt the database at rest.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-312: Cleartext Storage of Sensitive Information'
+    masvs:
+    - 'MASVS-STORAGE-1: The app securely stores sensitive data'
+    owasp:
+    - M9:2024 - Insecure Data Storage
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        try Realm()
+    - pattern: |
+        try! Realm()
+    - pattern: |
+        let $REALM = try Realm()
+    - pattern: |
+        let $REALM = try! Realm()
+    - pattern: |
+        Realm.Configuration()
+  - pattern-not-inside: |
+      ... encryptionKey ...
+
+- id: swift-realm-write-operation
+  message: >-
+    Realm database write operation detected. Verify that the Realm instance
+    uses encryption and that sensitive data written to Realm is appropriately
+    protected. Unencrypted Realm files can be extracted from device backups.
+  severity: INFO
+  metadata:
+    likelihood: LOW
+    impact: MEDIUM
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-312: Cleartext Storage of Sensitive Information'
+    masvs:
+    - 'MASVS-STORAGE-1: The app securely stores sensitive data'
+    owasp:
+    - M9:2024 - Insecure Data Storage
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        $REALM.write { ... }
+    - pattern: |
+        try $REALM.write { ... }
+    - pattern: |
+        try! $REALM.write { ... }
+
+# ===================================================
+# Secure Text Entry Missing on Password Fields (CWE-200, M6)
+# ===================================================
+
+- id: swift-password-field-not-secure
+  message: >-
+    A text field with a password-related content type does not have
+    isSecureTextEntry enabled. Password fields should always mask user input
+    to prevent shoulder surfing and screen recording exposure.
+  severity: WARNING
+  metadata:
+    likelihood: HIGH
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-200: Exposure of Sensitive Information to an Unauthorized Actor'
+    masvs:
+    - 'MASVS-PRIVACY-1: The app minimizes access to sensitive data and resources'
+    owasp:
+    - M6:2024 - Inadequate Privacy Controls
+    subcategory:
+    - vuln
+    technology:
+    - ios
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        $FIELD.textContentType = .password
+    - pattern: |
+        $FIELD.textContentType = .newPassword
+  - pattern-not-inside: |
+      ...
+      $FIELD.isSecureTextEntry = true
+      ...
+
+- id: swift-password-variable-not-secure-entry
+  message: >-
+    A UITextField whose name suggests it handles passwords does not set
+    isSecureTextEntry = true. Always mask password input to prevent exposure.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-200: Exposure of Sensitive Information to an Unauthorized Actor'
+    masvs:
+    - 'MASVS-PRIVACY-1: The app minimizes access to sensitive data and resources'
+    owasp:
+    - M6:2024 - Inadequate Privacy Controls
+    subcategory:
+    - audit
+    technology:
+    - ios
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        let $FIELD = UITextField()
+    - pattern: |
+        var $FIELD = UITextField()
+    - pattern: |
+        let $FIELD: UITextField
+  - metavariable-regex:
+      metavariable: $FIELD
+      regex: (?i).*(password|passwd|passphrase|passcode|pin).*
+
+# ===================================================
+# Weak Hash Algorithms -- MD2, MD4, MD6 (CWE-327, M10)
+# ===================================================
+
+- id: swift-weak-hash-md2
+  message: >-
+    MD2 hash algorithm detected. MD2 is cryptographically broken and
+    computationally expensive. It has known collision and preimage attacks.
+    Use SHA-256 or SHA-512 via CryptoKit instead.
+  severity: ERROR
+  metadata:
+    likelihood: LOW
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'
+    masvs:
+    - 'MASVS-CRYPTO-1: The app uses cryptographic algorithms that are up to date and well-tested'
+    owasp:
+    - M10:2024 - Insufficient Cryptography
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: CC_MD2(...)
+    - pattern: CC_MD2_Init(...)
+    - pattern: CC_MD2_Update(...)
+    - pattern: CC_MD2_Final(...)
+
+- id: swift-weak-hash-md4
+  message: >-
+    MD4 hash algorithm detected. MD4 is severely broken with practical
+    collision attacks demonstrated in seconds. It must not be used for any
+    security purpose. Use SHA-256 or SHA-512 via CryptoKit instead.
+  severity: ERROR
+  metadata:
+    likelihood: LOW
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'
+    masvs:
+    - 'MASVS-CRYPTO-1: The app uses cryptographic algorithms that are up to date and well-tested'
+    owasp:
+    - M10:2024 - Insufficient Cryptography
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: CC_MD4(...)
+    - pattern: CC_MD4_Init(...)
+    - pattern: CC_MD4_Update(...)
+    - pattern: CC_MD4_Final(...)
+
+# ===================================================
+# TLS Version Enforcement (CWE-326, M5)
+# ===================================================
+
+- id: swift-tls-1-0-usage
+  message: >-
+    TLS 1.0 detected. TLS 1.0 has known vulnerabilities (BEAST, POODLE) and
+    is deprecated by IETF RFC 8996. Enforce TLS 1.2 minimum, preferably
+    TLS 1.3 for modern security.
+  severity: ERROR
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-326: Inadequate Encryption Strength'
+    masvs:
+    - 'MASVS-NETWORK-1: The app secures all network traffic'
+    owasp:
+    - M5:2024 - Insecure Communication
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        .tlsProtocol1
+    - pattern: |
+        tls_protocol_version_t.TLSv10
+    - pattern: |
+        SSLProtocol.tlsProtocol1
+
+- id: swift-tls-1-1-usage
+  message: >-
+    TLS 1.1 detected. TLS 1.1 is deprecated by IETF RFC 8996 and lacks
+    support for modern cipher suites. Enforce TLS 1.2 minimum, preferably
+    TLS 1.3.
+  severity: ERROR
+  metadata:
+    likelihood: MEDIUM
+    impact: HIGH
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-326: Inadequate Encryption Strength'
+    masvs:
+    - 'MASVS-NETWORK-1: The app secures all network traffic'
+    owasp:
+    - M5:2024 - Insecure Communication
+    subcategory:
+    - vuln
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        .tlsProtocol11
+    - pattern: |
+        tls_protocol_version_t.TLSv11
+    - pattern: |
+        SSLProtocol.tlsProtocol11
+
+- id: swift-dtls-1-0-usage
+  message: >-
+    DTLS 1.0 detected. DTLS 1.0 is based on TLS 1.1 and inherits its
+    weaknesses. Use DTLS 1.2 or higher for datagram transport security.
+  severity: WARNING
+  metadata:
+    likelihood: LOW
+    impact: MEDIUM
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-326: Inadequate Encryption Strength'
+    masvs:
+    - 'MASVS-NETWORK-1: The app secures all network traffic'
+    owasp:
+    - M5:2024 - Insecure Communication
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        .dtlsProtocol1
+    - pattern: |
+        tls_protocol_version_t.DTLSv10
+    - pattern: |
+        SSLProtocol.dtlsProtocol1
+
+- id: swift-deprecated-tls-minimum-protocol
+  message: >-
+    Deprecated tlsMinimumSupportedProtocol property used. This API is
+    deprecated since iOS 13. Use tlsMinimumSupportedProtocolVersion with
+    .TLSv12 or .TLSv13 instead.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-326: Inadequate Encryption Strength'
+    - 'CWE-477: Use of Obsolete Function'
+    masvs:
+    - 'MASVS-NETWORK-1: The app secures all network traffic'
+    owasp:
+    - M5:2024 - Insecure Communication
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  pattern: |
+    $CONFIG.tlsMinimumSupportedProtocol = $VALUE
+
+# ===================================================
+# Anti-Reversing & Tampering Detection (CWE-693, M7)
+# ===================================================
+
+- id: swift-frida-detection
+  message: >-
+    Frida dynamic instrumentation framework detection code found. The app
+    checks for Frida, which is a positive security measure. Ensure the
+    detection result triggers appropriate defensive action (e.g., app
+    termination) and is not easily bypassed.
+  severity: INFO
+  metadata:
+    likelihood: LOW
+    impact: LOW
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-693: Protection Mechanism Failure'
+    masvs:
+    - 'MASVS-RESILIENCE-2: The app implements anti-tampering mechanisms'
+    owasp:
+    - M7:2024 - Insufficient Binary Protections
+    subcategory:
+    - audit
+    technology:
+    - ios
+  languages:
+  - swift
+  pattern-regex: '(?i)(frida|fridaserver|frida-server|frida-gadget|27042|com\.saurik\.Cydia\.Cydget)'
+
+- id: swift-debugger-detection
+  message: >-
+    Debugger or reverse engineering tool detection code found. The app checks
+    for debugging tools (cycript, lldb, gdb), which is a positive security
+    measure. Ensure detection results in appropriate defensive action.
+  severity: INFO
+  metadata:
+    likelihood: LOW
+    impact: LOW
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-693: Protection Mechanism Failure'
+    masvs:
+    - 'MASVS-RESILIENCE-2: The app implements anti-tampering mechanisms'
+    owasp:
+    - M7:2024 - Insufficient Binary Protections
+    subcategory:
+    - audit
+    technology:
+    - ios
+    - macos
+  languages:
+  - swift
+  pattern-regex: '(?i)(cycript|lldb|gdb|objection|needle|idb|clutch|MobileSubstrate|SubstrateBridge)'
+
+- id: swift-simulator-detection
+  message: >-
+    Simulator environment detection code found. Checking for simulator
+    execution is a defensive measure to prevent running in analysis
+    environments. Ensure the check is enforced for release builds.
+  severity: INFO
+  metadata:
+    likelihood: LOW
+    impact: LOW
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-693: Protection Mechanism Failure'
+    masvs:
+    - 'MASVS-RESILIENCE-1: The app validates the integrity of the platform'
+    owasp:
+    - M7:2024 - Insufficient Binary Protections
+    subcategory:
+    - audit
+    technology:
+    - ios
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        TARGET_OS_SIMULATOR
+    - pattern: |
+        TARGET_IPHONE_SIMULATOR
+    - pattern-regex: '#if\s+targetEnvironment\s*\(\s*simulator\s*\)'
+
+# ===================================================
+# Custom Keyboard Restriction (CWE-200, M6)
+# ===================================================
+
+- id: swift-custom-keyboard-not-disabled
+  message: >-
+    App does not disable third-party custom keyboards. Custom keyboards can
+    capture all keystrokes and send them to remote servers. For apps handling
+    sensitive data (banking, healthcare), override
+    application(_:shouldAllowExtensionPointIdentifier:) to return false for
+    .keyboard.
+  severity: INFO
+  metadata:
+    likelihood: LOW
+    impact: MEDIUM
+    confidence: LOW
+    category: security
+    cwe:
+    - 'CWE-200: Exposure of Sensitive Information to an Unauthorized Actor'
+    masvs:
+    - 'MASVS-PRIVACY-1: The app minimizes access to sensitive data and resources'
+    owasp:
+    - M6:2024 - Inadequate Privacy Controls
+    subcategory:
+    - audit
+    technology:
+    - ios
+  languages:
+  - swift
+  pattern-regex: 'shouldAllowExtensionPointIdentifier.*keyboard'
+
+# ===================================================
+# Copy/Paste Disabled on Sensitive Fields (CWE-200, M6)
+# ===================================================
+
+- id: swift-copy-paste-sensitive-field
+  message: >-
+    Copy and paste functionality on a sensitive text field may not be
+    disabled. Override canPerformAction(_:withSender:) to return false for
+    .copy, .paste, and .select on fields displaying passwords, credit card
+    numbers, or other PII to prevent clipboard leakage.
+  severity: INFO
+  metadata:
+    likelihood: LOW
+    impact: MEDIUM
+    confidence: LOW
+    category: security
+    cwe:
+    - 'CWE-200: Exposure of Sensitive Information to an Unauthorized Actor'
+    masvs:
+    - 'MASVS-PRIVACY-1: The app minimizes access to sensitive data and resources'
+    owasp:
+    - M6:2024 - Inadequate Privacy Controls
+    subcategory:
+    - audit
+    technology:
+    - ios
+  languages:
+  - swift
+  pattern-regex: 'canPerformAction\(.*withSender'
+
+# ===================================================
+# SFSafariViewController Usage (CWE-200, M8)
+# ===================================================
+
+- id: swift-safari-view-controller
+  message: >-
+    SFSafariViewController detected. While SFSafariViewController is more
+    secure than UIWebView, it shares cookies and browsing data with Safari.
+    For sensitive flows (OAuth, payments), consider using
+    ASWebAuthenticationSession which provides isolated cookie storage.
+  severity: INFO
+  metadata:
+    likelihood: LOW
+    impact: LOW
+    confidence: HIGH
+    category: security
+    cwe:
+    - 'CWE-200: Exposure of Sensitive Information to an Unauthorized Actor'
+    masvs:
+    - 'MASVS-PLATFORM-2: The app uses WebViews securely'
+    owasp:
+    - M8:2024 - Security Misconfiguration
+    subcategory:
+    - audit
+    technology:
+    - ios
+  languages:
+  - swift
+  patterns:
+  - pattern-either:
+    - pattern: |
+        SFSafariViewController(url: $URL)
+    - pattern: |
+        SFSafariViewController(url: $URL, configuration: $CONFIG)
+
+# ===================================================
+# Deprecated URL Scheme Registration (CWE-939, M4)
+# ===================================================
+
+- id: swift-custom-url-scheme-handler
+  message: >-
+    Custom URL scheme handler detected. Custom URL schemes (unlike Universal
+    Links) are not verified by Apple and can be claimed by any app on the
+    device. An attacker can register the same scheme to intercept sensitive
+    data. Prefer Universal Links (Associated Domains) for security-sensitive
+    flows like OAuth callbacks.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe:
+    - 'CWE-939: Improper Authorization in Handler for Custom URL Scheme'
+    masvs:
+    - 'MASVS-PLATFORM-1: The app uses IPC mechanisms securely'
+    owasp:
+    - M4:2024 - Insufficient Input/Output Validation
+    subcategory:
+    - audit
+    technology:
+    - ios
+  languages:
+  - swift
+  pattern-regex: 'func application\([^,)]+,\s*open\s+url:\s*URL'
 
